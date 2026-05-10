@@ -292,18 +292,41 @@ class git操作:
             return 返回
         try:
             submodule = self.repo.submodule(名称)
-
+            模块路径=submodule.path
+            模块完整路径=os.path.join(self.仓库路径, 模块路径)
+            模块名称=submodule.name
+            模块锁定的提交哈希=submodule.hexsha
+            模块分支=submodule.branch
+            模块远程地址=submodule.url
+            索引路径=os.path.join(self.仓库路径, ".git","modules",模块名称)
             subrepo=submodule.module()
+
+
+
 
             subrepo.git.clear_cache()
             subrepo.close()
-
+            del subrepo
+            del submodule
             gc.collect()
-            submodule.remove()
-            # self.repo.git.submodule("deinit", "--force", submodule.name)
-            # self.repo.git("rm", "--cached", "--force", submodule.path)
-            subrepo=None
-            # shutil.rmtree(submodule.path, onerror=解决win权限问题)
+
+            self.repo.git.submodule("deinit", "--force", 模块路径)
+            self.repo.git.rm( "--cached", "--force", 模块路径)
+
+            shutil.rmtree(索引路径, onerror=解决win权限问题)
+            del 索引路径
+            shutil.rmtree(模块完整路径, onerror=解决win权限问题)
+            del 模块完整路径
+            with self.repo.config_writer(config_level="repository") as cw:
+                section = f'submodule "{模块名称}"'
+                if cw.has_section(section):
+                    cw.remove_section(section)
+            gitmodules路径 = os.path.join(self.仓库路径, ".gitmodules")
+            from git.config import GitConfigParser
+            with GitConfigParser(gitmodules路径, read_only=False) as gcp:
+                section=f'submodule "{模块名称}"'
+                if gcp.has_section(section):
+                    gcp.remove_section(section)
 
 
             返回.成功(数据=True)
