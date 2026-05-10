@@ -1,0 +1,75 @@
+[submodule "custom_nodes/com_mrnf_node"]
+	path = custom_nodes/com_mrnf_node
+	branch= master
+	url = https://openi.pcl.ac.cn/mrnfqrbl/com_mrnf_node.git
+
+[submodule "custom_nodes/ComfyUI-Image-Saver"]
+	path = custom_nodes/ComfyUI-Image-Saver
+	url = https://openi.pcl.ac.cn/mrnfqrbl/ComfyUI-Image-Saver.git
+
+[submodule "custom_nodes/save-image-extended-comfyui"]
+	path = custom_nodes/save-image-extended-comfyui
+	url = https://gitee.com/mrnf/save-image-extended-comfyui.git
+[submodule "com_frontend"]
+	path = com_frontend
+	branch= master
+	url = https://openi.pcl.ac.cn/mrnfqrbl/com_frontend.git
+[submodule "custom_nodes/ComfyUI-Crystools"]
+	path = custom_nodes/ComfyUI-Crystools
+	url = https://gitee.com/mrnf/ComfyUI-Crystools.git
+[submodule "custom_nodes/ComfyUI-WD14-Tagger"]
+	path = custom_nodes/ComfyUI-WD14-Tagger
+	url = https://gitee.com/mrnf/ComfyUI-WD14-Tagger.git
+[submodule "custom_nodes/ComfyUI_IPAdapter_plus"]
+	path = custom_nodes/ComfyUI_IPAdapter_plus
+	url = https://gitee.com/mrnf/ComfyUI_IPAdapter_plus.git
+[submodule "custom_nodes/ComfyUI-Florence2"]
+	path = custom_nodes/ComfyUI-Florence2
+	url = https://gitee.com/mrnf/ComfyUI-Florence2.git
+
+[submodule "custom_nodes/rgthree-comfy"]
+	path = custom_nodes/rgthree-comfy
+	branch= main
+	url = https://gitee.com/mrnf/rgthree-comfy.git
+
+[submodule "custom_nodes/ComfyUI-Advanced-ControlNet"]
+	path = custom_nodes/ComfyUI-Advanced-ControlNet
+	url = https://gitee.com/mrnf/ComfyUI-Advanced-ControlNet.git
+
+[submodule "custom_nodes/comfyui_controlnet_aux"]
+	path = custom_nodes/comfyui_controlnet_aux
+	url = https://gitee.com/mrnf/comfyui_controlnet_aux.git
+
+[submodule "custom_nodes/ComfyUI-layerdiffuse"]
+	path = custom_nodes/ComfyUI-layerdiffuse
+	url = https://gitee.com/mrnf/ComfyUI-layerdiffuse.git
+
+[submodule "custom_nodes/ComfyUI_UltimateSDUpscale"]
+	path = custom_nodes/ComfyUI_UltimateSDUpscale
+	url = https://gitee.com/mrnf/ComfyUI_UltimateSDUpscale.git
+
+[submodule "custom_nodes/ComfyUI-Impact-Subpack"]
+	path = custom_nodes/ComfyUI-Impact-Subpack
+	url = https://gitee.com/mrnf/ComfyUI-Impact-Subpack.git
+
+[submodule "custom_nodes/ComfyUI-Impact-Pack"]
+	path = custom_nodes/ComfyUI-Impact-Pack
+	url = https://gitee.com/mrnf/ComfyUI-Impact-Pack.git
+
+[submodule "custom_nodes/ComfyUI-Inspire-Pack"]
+	path = custom_nodes/ComfyUI-Inspire-Pack
+	url = https://gitee.com/mrnf/ComfyUI-Inspire-Pack.git
+
+[submodule "custom_nodes/sd-dynamic-thresholding"]
+	path = custom_nodes/sd-dynamic-thresholding
+	url = https://gitee.com/mrnf/sd-dynamic-thresholding.git
+
+[submodule "custom_nodes/ComfyUI-KJNodes"]
+	path = custom_nodes/ComfyUI-KJNodes
+	url = https://gitee.com/mrnf/ComfyUI-KJNodes.git
+
+[submodule "custom_nodes/ComfyUI_essentials"]
+	path = custom_nodes/ComfyUI_essentials
+	url = https://gitee.com/mrnf/ComfyUI_essentials.git
+
+
