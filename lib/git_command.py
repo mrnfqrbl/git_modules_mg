@@ -42,7 +42,8 @@ class git操作:
         :param 仓库路径: 本地仓库的绝对或相对路径
         :raises: 若路径无效或非 Git 仓库，抛出异常
         """
-
+        if getattr(self, "_已初始化", False):
+            return
         if not os.path.isdir(仓库路径):
             raise ValueError(f"路径不存在或不是目录: {仓库路径}")
         if not os.path.exists(os.path.join(仓库路径, ".git")):
@@ -52,6 +53,7 @@ class git操作:
             self.仓库路径 = 仓库路径
         except InvalidGitRepositoryError:
             raise ValueError(f"无效的 Git 仓库: {仓库路径}")
+        self.已初始化 = True
 
     # ====================== 【仓库校验 · 查询类】（实例方法） ======================
     # 标记:已测试
@@ -184,14 +186,14 @@ class git操作:
             if 文件列表 is not None:
                 # 用户明确指定了文件列表，直接添加这些文件（不自动添加所有）
                 add_ret = self.添加(文件列表, test=test)
-                if not add_ret.成功标志:  # 假设有成功标志属性，若无则检查数据
+                if not add_ret.状态:
                     return add_ret
             else:
                 # 文件列表为 None
                 if 是否允许自动add:
                     # 自动添加所有变更
                     add_ret = self.添加(None, test=test)
-                    if not add_ret.成功:
+                    if not add_ret.状态:
                         return add_ret
 
                 # 否则不添加任何新文件，只提交已暂存的内容（无需额外操作）
@@ -235,12 +237,21 @@ class git操作:
 
             remote = self.repo.remotes[远程名称]
             push_info = remote.push(refspec=分支)
-            # 简单判断是否成功
-            if push_info and hasattr(push_info[0], 'flags'):
-                # flags 非零通常表示成功，具体可参考 git.PushInfo
-                返回.成功(数据=True)
-            else:
-                返回.成功(数据=True)  # 未出错即认为成功
+            for info in push_info:
+                if info.flags & info.ERROR:
+                    返回.失败(f"推送失败：{info.summary}")
+                    return 返回
+            返回.成功(数据=True)
+            # # 简单判断是否成功
+            # if push_info and hasattr(push_info[0], 'flags'):
+            #     # flags 非零通常表示成功，具体可参考 git.PushInfo
+            #     返回.成功(数据=True)
+            # else:
+            #     for info in push_info:
+            #         if info.flags & info.ERROR:
+            #             返回.失败(f"推送失败：{info.summary}")
+            #             return 返回
+            # 返回.成功(数据=True)
         except Exception as e:
             返回.失败(f"推送失败：{str(e)}", 异常对象=e)
         return 返回
@@ -273,7 +284,7 @@ class git操作:
         except Exception as e:
             返回.失败(f"添加子模块失败：{str(e)}", 异常对象=e)
         return 返回
-
+    # 标记:已测试
     def 删除子模块(self, 名称: str, 强制: bool = False, test: bool = False) -> 函数通用返回模型:
         """
         实例方法：删除子模块
@@ -478,6 +489,9 @@ class git操作:
     def remove(仓库路径: str, test: bool = False) -> 函数通用返回模型:
         """删除本地仓库"""
         返回 = 函数通用返回模型()
+        if not Git工具.是否为有效仓库(仓库路径).数据:
+            返回.失败(f"路径不是有效 Git 仓库：{仓库路径}", 数据=False)
+            return 返回
 
         repo=Git工具(仓库路径)
 
@@ -487,19 +501,7 @@ class git操作:
         #强制gc
         gc.collect()
 
-
-
-
-
-        if test:
-            # 测试模式：仅检查路径是否存在，不实际删除
-            if os.path.exists(仓库路径):
-                返回.成功(数据=True)
-            else:
-                返回.失败(f"路径不存在：{仓库路径}", 数据=False)
-            return 返回
         try:
-
 
             shutil.rmtree(仓库路径, onerror=解决win权限问题)
             返回.成功(数据=True)

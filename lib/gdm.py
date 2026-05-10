@@ -10,6 +10,7 @@ class 函数通用返回模型(函数通用返回模型,Generic[T]):
         super().__init__(*args,**kwargs)
         self.日志: list[str] | None = []
         self.错误堆栈: str | None = None
+        self.状态:bool = False
 
 
     def __str__(self):
@@ -31,14 +32,13 @@ class 函数通用返回模型(函数通用返回模型,Generic[T]):
 
     def 成功(self,数据: Optional[T] = None):
         """成功返回"""
-        self.状态 = super().成功
+        self.状态 = True
         self.数据: T | None = 数据
 
         return True
 
     def 失败(self,错误信息: str,异常对象: Exception | None = None,数据: Optional[T] = None):
         """失败返回"""
-        self.状态 = super().失败
         self.错误信息: str | None = 错误信息
         self.错误堆栈: str | None = ''.join(traceback.format_exception(type(异常对象), 异常对象, 异常对象.__traceback__)) if 异常对象 else None
 
