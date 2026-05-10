@@ -537,12 +537,13 @@ if __name__ == "__main__":
     print(repo.获取子模块列表())
     print(repo.删除子模块("t1",True))
     print(repo.获取子模块列表())
-    # print(repo.添加子模块("t1", "https://github.com/mrnfqrbl/sd-forge-colab.git"))
-    # print(repo.获取子模块信息("t1"))
+    print(repo.添加子模块("t1","com/t1", "https://github.com/mrnfqrbl/sd-forge-colab.git"))
+    print(repo.添加子模块("t3","t1", "https://github.com/mrnfqrbl/sd-forge-colab.git"))
+    print(repo.获取子模块列表())
 
 
-    # print(repo.提交("添加子模块 t1",是否允许自动add=True))
-    # print(repo.推送("origin", repo.获取当前分支().数据))
+    print(repo.提交("添加子模块 t1",是否允许自动add=True))
+    print(repo.推送("origin", repo.获取当前分支().数据))
 
 
 
