@@ -39,6 +39,7 @@ class 函数通用返回模型(函数通用返回模型,Generic[T]):
 
     def 失败(self,错误信息: str,异常对象: Exception | None = None,数据: Optional[T] = None):
         """失败返回"""
+        self.状态 = False
         self.错误信息: str | None = 错误信息
         self.错误堆栈: str | None = ''.join(traceback.format_exception(type(异常对象), 异常对象, 异常对象.__traceback__)) if 异常对象 else None
 

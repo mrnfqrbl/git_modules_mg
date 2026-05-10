@@ -53,7 +53,7 @@ class git操作:
             self.仓库路径 = 仓库路径
         except InvalidGitRepositoryError:
             raise ValueError(f"无效的 Git 仓库: {仓库路径}")
-        self.已初始化 = True
+        self._已初始化 = True
 
     # ====================== 【仓库校验 · 查询类】（实例方法） ======================
     # 标记:已测试
@@ -492,12 +492,14 @@ class git操作:
         if not Git工具.是否为有效仓库(仓库路径).数据:
             返回.失败(f"路径不是有效 Git 仓库：{仓库路径}", 数据=False)
             return 返回
-
+        if test:
+            返回.成功(数据=True)
+            return 返回
         repo=Git工具(仓库路径)
 
         repo.repo.git.clear_cache()
         repo.repo.close()
-        del Git工具._实例表[仓库路径]
+        Git工具._实例表.pop(仓库路径,None)
         #强制gc
         gc.collect()
 
