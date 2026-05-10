@@ -236,7 +236,7 @@ class git操作:
                 return 返回
 
             remote = self.repo.remotes[远程名称]
-            push_info = remote.push(refspec=分支)
+            push_info = remote.push(refspec=分支,force=强制)
             for info in push_info:
                 if info.flags & info.ERROR:
                     返回.失败(f"推送失败：{info.summary}")
