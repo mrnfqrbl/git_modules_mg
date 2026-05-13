@@ -7,6 +7,7 @@
 目前实现：
     - GitModules适配器：解析/改写 .gitmodules
     - Requirements适配器：解析/改写 requirements*.txt 中的 git+https:// 依赖
+    - SetupPy适配器：解析/改写 setup.py 中的 git 依赖
     - PyProject适配器：解析/改写 pyproject.toml 中的 git 依赖（骨架）
 
 扩展方式：
@@ -74,8 +75,7 @@ class GitModules适配器(引用载体适配器基类):
         return os.path.join(工作区路径, ".gitmodules")
 
     def 识别(self, 工作区路径: str) -> bool:
-        路径 = self._文件路径(工作区路径)
-        return os.path.isfile(路径)
+        return os.path.isfile(self._文件路径(工作区路径))
 
     def 解析(self, 工作区路径: str) -> list[依赖边]:
         路径 = self._文件路径(工作区路径)
@@ -104,7 +104,7 @@ class GitModules适配器(引用载体适配器基类):
                 url=url,
                 仓库名=仓库名,
                 引用类型="子模块",
-                固定度="浮动到分支" if branch else "浮动到分支",
+                固定度="浮动到分支",
                 载体文件=".gitmodules",
                 载体位置=section,
                 额外信息={"名称": 名称, "路径": path, "分支": branch}
@@ -114,14 +114,12 @@ class GitModules适配器(引用载体适配器基类):
         return 结果
 
     def 改写(self, 工作区路径: str, 映射表: dict[str, str]) -> list[str]:
-        """改写 .gitmodules 中的 url 字段"""
+        """改写 .gitmodules 中的 url 字段（文本替换，保持原始格式）"""
         路径 = self._文件路径(工作区路径)
         if not os.path.isfile(路径):
             return []
 
         改动记录 = []
-
-        # 用文本替换（保持原始格式不被 ConfigParser 破坏）
         with open(路径, "r", encoding="utf-8") as f:
             内容 = f.read()
 
@@ -144,11 +142,6 @@ class GitModules适配器(引用载体适配器基类):
 class Requirements适配器(引用载体适配器基类):
     """解析/改写 requirements*.txt 中的 git+https:// 依赖"""
 
-    # 匹配 git+https://github.com/user/repo.git 或 git+https://github.com/user/repo@branch
-    _GIT_URL_RE = re.compile(
-        r'git\+https?://[^\s@#]+(?:\.git)?(?:@[^\s#]+)?'
-    )
-    # 提取纯 URL 部分（去掉 git+ 前缀和 @branch 后缀）
     _PURE_URL_RE = re.compile(
         r'git\+(https?://[^\s@#]+(?:\.git)?)'
     )
@@ -162,6 +155,9 @@ class Requirements适配器(引用载体适配器基类):
         return 结果
 
     def 识别(self, 工作区路径: str) -> bool:
+        # 路径不存在时（dry-run 未克隆）直接返回 False，不抛 FileNotFoundError
+        if not os.path.isdir(工作区路径):
+            return False
         return len(self._查找requirements文件(工作区路径)) > 0
 
     def 解析(self, 工作区路径: str) -> list[依赖边]:
@@ -181,16 +177,12 @@ class Requirements适配器(引用载体适配器基类):
                     纯url = 匹配.group(1)
                     仓库名 = 纯url.rstrip("/").split("/")[-1].removesuffix(".git")
 
-                    # 检查是否有 @branch/commit 固定
                     固定度 = "浮动到分支"
                     分支信息 = ""
                     if "@" in 行.split("://", 1)[-1]:
-                        # git+https://xxx/repo.git@main
                         分支信息 = 行.split("@")[-1].split("#")[0].strip()
                         if len(分支信息) == 40:  # SHA1 hash
                             固定度 = "锁定到commit"
-                        else:
-                            固定度 = "浮动到分支"
 
                     边 = 依赖边(
                         url=纯url,
@@ -230,11 +222,8 @@ class Requirements适配器(引用载体适配器基类):
 # setup.py 适配器
 # ─────────────────────────────────────────────
 class SetupPy适配器(引用载体适配器基类):
-    """解析/改写 setup.py / setup.cfg 中的 git 依赖"""
+    """解析/改写 setup.py 中的 git 依赖"""
 
-    _GIT_URL_RE = re.compile(
-        r'git\+https?://[^\s\'"@#,]+(?:\.git)?(?:@[^\s\'"#,]+)?'
-    )
     _PURE_URL_RE = re.compile(
         r'git\+(https?://[^\s\'"@#,]+(?:\.git)?)'
     )
@@ -301,11 +290,8 @@ class SetupPy适配器(引用载体适配器基类):
 # ─────────────────────────────────────────────
 class PyProject适配器(引用载体适配器基类):
     """解析/改写 pyproject.toml 中的 git 依赖（骨架）"""
-    # TODO: 完整实现 toml 解析（需要 toml/tomllib）
+    # TODO: 完整实现 toml 结构化解析（需要 toml/tomllib），当前用正则兜底
 
-    _GIT_URL_RE = re.compile(
-        r'git\+https?://[^\s\'"@#,]+(?:\.git)?(?:@[^\s\'"#,]+)?'
-    )
     _PURE_URL_RE = re.compile(
         r'git\+(https?://[^\s\'"@#,]+(?:\.git)?)'
     )

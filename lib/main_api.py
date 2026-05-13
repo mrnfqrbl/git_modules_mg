@@ -5,7 +5,6 @@ from lib.logger import set_logger
 from lib.util import 从多个变量读取第一个存在的变量值,校验git和gitee_tk
 from lib.初始变量 import 默认github_tk变量名称,默认gitee_tk变量名称,默认配置文件字典
 from lib.git_base_api import GitHubApi as github_api, GiteeApi as gitee_api
-from lib.git_command import Git工具
 class MainApi:
     # ====================== 【核心优化】定义支持的平台（唯一写死的地方） ======================
     # 后续新增平台：只在这里加字符串，比如 "gitlab"
@@ -29,8 +28,8 @@ class MainApi:
 
         self.logger=set_logger(level="DEBUG" if self.debug else "INFO", name="git_modules_mg", mode="console", path=logpath)
         self.config=ConfigMg(配置文件路径=self.配置文件路径,默认配置文件字典=默认配置文件字典)
-        self.git工具=Git工具()
-        # 用字典统一存储所有平台Token（替代单独的属性）
+        # git工具 实例需要绑定具体仓库路径，不在此处预初始化
+        # 调用方按需构造：Git工具(仓库路径)
         self.tokens = {平台: None for 平台 in self.支持的平台}
         # 环境变量缓存
         self.环境变量结果 = {}

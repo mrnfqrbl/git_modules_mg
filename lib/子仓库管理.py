@@ -277,7 +277,13 @@ class 仓库迁移任务:
             子任务.执行()
 
     def _步骤_改写引用(self):
-        """用全局映射表改写本仓库中的所有引用文件"""
+        """
+        按正确顺序改写本仓库中的所有引用：
+          1. 先做 git 级别的子模块替换（删旧子模块 → 添新 URL 子模块）
+             必须在文本改写前，此时 .gitmodules 里还是旧 URL，能正确匹配映射表
+          2. 再做文本兜底改写（requirements / pyproject / .gitmodules 残余）
+             git 级别替换完成后 .gitmodules 已更新，文本改写幂等跳过已改项
+        """
         if not self.上下文.映射表:
             self._记录("无需改写（映射表为空）")
             return
@@ -286,25 +292,26 @@ class 仓库迁移任务:
             self._记录("[dry-run] 跳过改写")
             return
 
+        # 步骤 1：git 级别替换（用旧 URL 索引，必须先于文本改写）
+        self._处理子模块替换()
+
+        # 步骤 2：文本兜底改写所有引用载体文件
         改动 = 改写所有引用(self.本地路径, self.上下文.映射表)
         if 改动:
             for 条目 in 改动:
                 self._记录(f"  改写：{条目}")
         else:
-            self._记录("引用文件中无匹配项需要改写")
-
-        # TODO: 对于子模块类型的依赖，执行 删除旧子模块 → 添加新 URL 子模块
-        # 当前先用文本改写 .gitmodules 兜底，后续可以增加 git submodule 级别的操作
-        self._处理子模块替换()
+            self._记录("引用文件中无需文本改写的匹配项")
 
     def _处理子模块替换(self):
         """
-        对于子模块类型的依赖：删除旧子模块 → 重新添加 gitee URL 的子模块。
-        这样确保 .git/config 和 .gitmodules 以及实际子模块目录都正确。
+        git 级别子模块替换：删除旧子模块 → 重新添加 gitee URL 子模块。
+        确保 .git/config、.gitmodules、实际子模块目录全部正确对齐。
+        调用时机：必须在文本改写 .gitmodules 之前，否则旧 URL 无法匹配映射表。
         """
         from lib.git_command import Git工具
 
-        if self.上下文.dry_run or not os.path.isdir(self.本地路径):
+        if not os.path.isdir(self.本地路径):
             return
 
         # 检查是否是有效 git 仓库
@@ -333,10 +340,6 @@ class 仓库迁移任务:
             分支 = 子模块.get("追踪分支", None)
 
             self._记录(f"  替换子模块：{名称} → {新url}")
-
-            if self.上下文.dry_run:
-                self._记录(f"  [dry-run] 跳过子模块替换")
-                continue
 
             # 删除旧子模块
             删除结果 = 仓库实例.删除子模块(名称)
