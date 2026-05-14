@@ -1,0 +1,10 @@
+git_modules_mg.iml
+.idea/.gitignore
+.idea/MarsCodeWorkspaceAppSettings.xml
+.idea/misc.xml
+.idea/modules.xml
+.idea/vcs.xml
+lib/test.txt
+*/__pycache__/*
+*/__pycache__
+ComfyUi

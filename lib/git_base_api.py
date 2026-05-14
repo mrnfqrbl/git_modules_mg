@@ -72,6 +72,28 @@ class GitBaseApi:
     def 删除仓库(self, 仓库名: str) -> Dict[str, Any]:
         raise NotImplementedError("子类必须实现删除仓库方法")
 
+    # ==================== 通用便捷方法 ====================
+    def 仓库是否存在(self, 仓库名: str) -> bool:
+        """判断当前用户下是否存在指定名称的仓库(只判存在,不抛)。"""
+        try:
+            self.获取仓库信息(仓库名)
+            return True
+        except Exception:
+            return False
+
+    def 查找可用仓库名(self, 基础名称: str, 最大尝试: int = 50) -> str:
+        """
+        在当前用户下为 基础名称 找一个可用名。
+        若基础名已被占用,尝试 基础名_1、基础名_2...,直到找到可用的或超过尝试次数。
+        """
+        if not self.仓库是否存在(基础名称):
+            return 基础名称
+        for i in range(1, 最大尝试 + 1):
+            候选 = f"{基础名称}_{i}"
+            if not self.仓库是否存在(候选):
+                return 候选
+        raise RuntimeError(f"在 {最大尝试} 次尝试内未找到可用仓库名(基础:{基础名称})")
+
 
 class GitHubApi(GitBaseApi):
     """GitHub API实现类（标准请求头认证）"""

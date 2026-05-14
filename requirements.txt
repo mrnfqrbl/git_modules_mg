@@ -1,0 +1,6 @@
+git+https://github.com/mrnfqrbl/GenDataMod.git
+git+https://github.com/mrnfqrbl/obj2dict.git
+GitPython>=3.1.40
+requests>=2.31
+loguru>=0.7
+toml>=0.10
