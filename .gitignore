@@ -1,0 +1,6 @@
+git_modules_mg.iml
+.idea
+*/__pycache__/*
+*/__pycache__
+./lib/test.txt
+lib/test.txt
