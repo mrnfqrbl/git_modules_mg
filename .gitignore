@@ -9,6 +9,13 @@ git_modules_mg.iml
 lib/test.txt
 */__pycache__/*
 */__pycache__
+ComfyUI/
+ComfyUi/
+ComfyUI
 ComfyUi
+td/
+/td
 .sub_data/
 .docs/
+test.md
+test.py

@@ -5,6 +5,14 @@ from __future__ import annotations
 import argparse
 import os
 import sys
+import git
+
+if sys.platform.startswith('win'):
+    try:
+        sys.stdout.reconfigure(encoding='utf-8')
+        sys.stderr.reconfigure(encoding='utf-8')
+    except Exception:
+        pass
 
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
@@ -233,6 +241,7 @@ def cmd_run(args, 名称: str, 根仓库路径: str):
     白名单域名 = 解析白名单域名(api.config)
 
     # 执行批量迁移
+    is_public = bool(args.public)
     结果 = 批量迁移(
         待处理列表=待处理,
         gitee_api=api.gitee_api,
@@ -244,6 +253,7 @@ def cmd_run(args, 名称: str, 根仓库路径: str):
         dry_run=是否dry_run,
         no_push=是否no_push,
         logger=api.logger,
+        public=is_public,
     )
 
     # 输出结果
@@ -256,6 +266,19 @@ def cmd_run(args, 名称: str, 根仓库路径: str):
             for 旧, 新 in 数据["映射表"].items():
                 print(f"    {旧}")
                 print(f"      → {新}")
+            
+            # 记录 Gitee URLs
+            gitee_urls = sorted(list(set([val for val in 数据["映射表"].values() if val])))
+            urls_file = os.path.join(根仓库路径, ".sub_data", "gitee_urls.txt")
+            try:
+                os.makedirs(os.path.dirname(urls_file), exist_ok=True)
+                with open(urls_file, "w", encoding="utf-8") as f:
+                    for url in gitee_urls:
+                        f.write(url + "\n")
+                if gitee_urls:
+                    print(f"\n  ✓ 已记录所有迁移的 Gitee 仓库 URL 至: {urls_file}")
+            except Exception as e:
+                print(f"\n  ⚠ 记录 Gitee URL 失败: {str(e)}")
     else:
         print(f"  迁移结果：{结果.错误信息}")
         sys.exit(1)
@@ -275,15 +298,23 @@ def _应用到根仓库(根仓库路径: str, 清单: 模块清单, 缓存: 处�
     遍历清单中每条 entry：
     1. 从缓存取最新映射 → 新 URL
     2. 检查根仓库现有子模块：
-       - 按旧 URL 命中 → 删旧子模块 + 添新子模块（保留 name/path/branch）
-       - 未命中 → 用清单中的 子模块名/路径/分支 新增子模块
+       - 按 名称、路径 或 旧/新 URL 命中 → 替换子模块（先删旧，再添新，保留原有属性，并精确检出对应 commit 指针）
+       - 未命中 → 用清单中的 子模块名/路径/分支 新增子模块（同样精确检出对应 commit 指针）
     3. 全部完成后 commit（no_push 时跳过 push）
     """
     仓库 = Git工具(根仓库路径)
     子模块结果 = 仓库.获取子模块列表()
-    现有子模块 = {}
+    
+    # 建立多索引的现有子模块字典，防止因 URL 已经被改写为 Gitee 而匹配失败
+    现有子模块 = {}          # 按 URL
+    现有子模块_按名称 = {}    # 按名称
+    现有子模块_按路径 = {}    # 按路径
+    
     if 子模块结果.状态 and 子模块结果.数据:
-        现有子模块 = {s["URL"]: s for s in 子模块结果.数据}
+        for s in 子模块结果.数据:
+            现有子模块[s["URL"]] = s
+            现有子模块_按名称[s["名称"]] = s
+            现有子模块_按路径[s["路径"]] = s
 
     映射 = 缓存.获取最新映射()
 
@@ -294,25 +325,51 @@ def _应用到根仓库(根仓库路径: str, 清单: 模块清单, 缓存: 处�
             continue
 
         仓库名 = 旧url.split("/")[-1].removesuffix(".git")
-        名称 = 条目.get("子模块名") or 仓库名
-        路径 = 条目.get("子模块路径") or 仓库名
+        默认名称 = 条目.get("子模块名") or 仓库名
+        默认路径 = 条目.get("子模块路径") or 仓库名
         分支 = 条目.get("追踪分支") or None
 
-        if 旧url in 现有子模块:
+        # 只要名称、路径或 URL 匹配，就说明该子模块已经存在于根仓库
+        现有 = 现有子模块_按名称.get(默认名称) or 现有子模块_按路径.get(默认路径) or 现有子模块.get(旧url)
+
+        # 获取需要检出的正确 commit
+        最新 = 缓存.最新记录(旧url)
+        目标commit = 最新.get("迁移后commit") if 最新 else None
+
+        if 现有:
             # 替换：删旧 + 添新
-            旧信息 = 现有子模块[旧url]
-            名称 = 旧信息["名称"]
-            路径 = 旧信息["路径"]
-            分支 = 旧信息.get("追踪分支") or 分支
+            名称 = 现有["名称"]
+            路径 = 现有["路径"]
+            分支 = 现有.get("追踪分支") or 分支
+            
+            # 如果 URL 已是最新的，且已经检出在正确的 commit 上，我们只提示，但允许在强制重迁时重新处理
+            if 现有["URL"] == 新url and submodule_at_commit(仓库.repo, 名称, 目标commit):
+                print(f"  子模块 {名称} 已是最新的（URL与提交哈希均匹配）：{新url}")
+                continue
+
             if not dry_run:
-                仓库.删除子模块(名称)
-                仓库.添加子模块(名称, 路径, 新url, 分支=分支)
+                # 删除旧子模块
+                删结果 = 仓库.删除子模块(名称)
+                if not 删结果.状态:
+                    raise RuntimeError(f"应用时删除旧子模块 {名称} 失败：{删结果.错误信息}")
+                # 添加新子模块
+                添结果 = 仓库.添加子模块(名称, 路径, 新url, 分支=分支)
+                if not 添结果.状态:
+                    raise RuntimeError(f"应用时添加新子模块 {名称} 失败：{添结果.错误信息}")
+                # 精确检出对应的 commit 指针
+                if 目标commit:
+                    checkout_submodule_to_commit(仓库.repo, 名称, 路径, 目标commit)
             print(f"  替换子模块：{名称} → {新url}")
         else:
             # 新增
             if not dry_run:
-                仓库.添加子模块(名称, 路径, 新url, 分支=分支)
-            print(f"  新增子模块：{名称} @ {路径} → {新url}")
+                添结果 = 仓库.添加子模块(默认名称, 默认路径, 新url, 分支=分支)
+                if not 添结果.状态:
+                    raise RuntimeError(f"应用时新增子模块 {默认名称} 失败：{添结果.错误信息}")
+                # 精确检出对应的 commit 指针
+                if 目标commit:
+                    checkout_submodule_to_commit(仓库.repo, 默认名称, 默认路径, 目标commit)
+            print(f"  新增子模块：{默认名称} @ {默认路径} → {新url}")
 
     # 提交（no_push 时跳过 push）
     if not dry_run:
@@ -327,6 +384,51 @@ def _应用到根仓库(根仓库路径: str, 清单: 模块清单, 缓存: 处�
                 print("  ✓ 已提交并推送")
         else:
             print("  - 无变更需要提交")
+
+
+def submodule_at_commit(parent_repo, name: str, commit: str) -> bool:
+    """检查子模块是否已经在正确的 commit 上"""
+    if not commit:
+        return True
+    try:
+        sub = parent_repo.submodule(name)
+        return sub.hexsha == commit
+    except Exception:
+        return False
+
+
+def checkout_submodule_to_commit(parent_repo, name: str, path: str, commit: str):
+    """更新子模块并将其 checkout 到指定的 commit，随后 add 路径"""
+    try:
+        # 1. 尝试直接通过本地路径打开子仓库对象（最稳妥，避开 GitPython 内部对 submodule 列表的缓存/中文路径 Bug）
+        sub_repo_path = os.path.join(parent_repo.working_tree_dir, path)
+        sub_repo = None
+        if os.path.exists(os.path.join(sub_repo_path, ".git")):
+            try:
+                sub_repo = git.Repo(sub_repo_path)
+            except Exception:
+                pass
+        
+        # 2. 如果直接打开失败，尝试退回到标准的 GitPython 子模块对象获取
+        if not sub_repo:
+            if hasattr(parent_repo, "_submodules"):
+                try:
+                    del parent_repo._submodules
+                except Exception:
+                    pass
+            sub = parent_repo.submodule(name)
+            sub.update(init=True, force=True)
+            sub_repo = sub.module()
+
+        # 3. 确保本地已拉取最新的 commit
+        try:
+            sub_repo.git.fetch()
+        except Exception:
+            pass
+        sub_repo.git.checkout(commit, force=True)
+        parent_repo.git.add(path)
+    except Exception as e:
+        print(f"  ⚠ 检出子模块 {name} 到 {commit[:8]} 失败: {str(e)}")
 
 
 # ─────────────────────────────────────────────
@@ -473,16 +575,17 @@ def main():
         epilog=get_cmd("add"),
         formatter_class=argparse.RawDescriptionHelpFormatter)
     add_parser.add_argument("urls", nargs="+", help="要添加的仓库 URL")
-    add_parser.add_argument("--name", dest="name_arg", help="子模块名称（默认用仓库名）")
-    add_parser.add_argument("--path", help="子模块路径（默认用仓库名）")
-    add_parser.add_argument("--branch", help="追踪分支")
+    add_parser.add_argument("--name", "-n", dest="name_arg", help="子模块名称（默认用仓库名）")
+    add_parser.add_argument("--path", "-p", help="子模块路径（默认用仓库名）")
+    add_parser.add_argument("--branch", "-b", help="追踪分支")
 
     # ── run 子命令（需要根仓库） ──
     run_parser = subparsers.add_parser("run", help="执行迁移",
         epilog=get_cmd("run"),
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    run_parser.add_argument("--dry-run", action="store_true", help="预览模式，不实际执行")
+    run_parser.add_argument("--dry-run", "-dr", action="store_true", help="预览模式，不实际执行")
     run_parser.add_argument("--no-push", "-np", action="store_true", help="执行迁移但不推送（用于本地测试，对应 dry_run）")
+    run_parser.add_argument("--public", "-pb", type=int, choices=[0, 1], default=1, help="是否公开仓库 (0: 私有, 1: 公开)，默认为 1")
 
 
     # ── list 子命令（别名 ls） ──
@@ -494,7 +597,7 @@ def main():
     clean_parser = subparsers.add_parser("clean", help="清空根仓库所有子模块",
         epilog=get_cmd("clean"),
         formatter_class=argparse.RawDescriptionHelpFormatter)
-    clean_parser.add_argument("--force", action="store_true", help="确认执行（必需）")
+    clean_parser.add_argument("--force", "-f", action="store_true", help="确认执行（必需）")
 
     # ── sync 子命令（需要根仓库） ──
     subparsers.add_parser("sync", help="从现有子模块导入清单",
@@ -502,14 +605,14 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
 
     # ── mark / unmark 子命令（需要根仓库） ──
-    mark_parser = subparsers.add_parser("mark", help="标记模块行为",
+    mark_parser = subparsers.add_parser("mark", aliases=["m"], help="标记模块行为",
         epilog=get_cmd("mark"),
         formatter_class=argparse.RawDescriptionHelpFormatter)
     mark_parser.add_argument("urls", nargs="+", help="要标记的 URL")
-    mark_parser.add_argument("--force-redo", action="store_true", help="强制重新迁移")
-    mark_parser.add_argument("--skip-check", action="store_true", help="跳过本地校验")
+    mark_parser.add_argument("--force-redo", "-fr", "-f", action="store_true", help="强制重新迁移")
+    mark_parser.add_argument("--skip-check", "-skip", "-s", action="store_true", help="跳过本地校验")
 
-    unmark_parser = subparsers.add_parser("unmark", help="清除模块标记",
+    unmark_parser = subparsers.add_parser("unmark", aliases=["um"], help="清除模块标记",
         epilog=get_cmd("unmark"),
         formatter_class=argparse.RawDescriptionHelpFormatter)
     unmark_parser.add_argument("urls", nargs="+", help="要清除标记的 URL")

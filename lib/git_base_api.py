@@ -94,6 +94,55 @@ class GitBaseApi:
                 return 候选
         raise RuntimeError(f"在 {最大尝试} 次尝试内未找到可用仓库名(基础:{基础名称})")
 
+    def 获取最新提交(self, 仓库名: str) -> Dict[str, Any]:
+        """获取当前用户下指定仓库默认分支的最新一条提交信息"""
+        try:
+            用户名 = self.获取当前用户名()
+            原始数据 = self._send_request("GET", f"repos/{用户名}/{仓库名}/commits", params={"per_page": 1})
+            if 原始数据 and isinstance(原始数据, list) and len(原始数据) > 0:
+                item = 原始数据[0]
+                return {
+                    "sha": item.get("sha", ""),
+                    "message": item.get("commit", {}).get("message", "")
+                }
+        except Exception:
+            pass
+        return {}
+
+    def 获取历史提交列表(self, 仓库名: str, 数量: int = 100) -> list[Dict[str, Any]]:
+        """获取当前用户下指定仓库默认分支的历史提交列表"""
+        try:
+            用户名 = self.获取当前用户名()
+            原始数据 = self._send_request("GET", f"repos/{用户名}/{仓库名}/commits", params={"per_page": 数量})
+            if 原始数据 and isinstance(原始数据, list):
+                result = []
+                for item in 原始数据:
+                    if isinstance(item, dict):
+                        result.append({
+                            "sha": item.get("sha", ""),
+                            "message": item.get("commit", {}).get("message", "")
+                        })
+                return result
+        except Exception:
+            pass
+        return []
+
+    def 获取文件内容(self, 仓库名: str, 路径: str) -> str:
+        """获取当前用户下指定仓库中某个文件的内容（Base64解码后返回字符串）"""
+        try:
+            用户名 = self.获取当前用户名()
+            原始数据 = self._send_request("GET", f"repos/{用户名}/{仓库名}/contents/{路径}")
+            if isinstance(原始数据, dict) and "content" in 原始数据:
+                import base64
+                content = 原始数据["content"]
+                # 兼容返回内容中有换行符等特殊情况
+                content = "".join(content.split())
+                decoded_bytes = base64.b64decode(content)
+                return decoded_bytes.decode("utf-8")
+        except Exception:
+            pass
+        return ""
+
 
 class GitHubApi(GitBaseApi):
     """GitHub API实现类（标准请求头认证）"""

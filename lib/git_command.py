@@ -318,14 +318,35 @@ class git操作:
             self.repo.git.submodule("add", "--dry-run", "--name", 名称, 远程地址, 路径)
             返回.成功(数据={"名称": 名称, "路径": 路径, "测试模式": True})
             return 返回
+
+        # 1. 规范化并清洗追踪分支名称
+        原追踪分支 = 分支.strip() if (分支 and isinstance(分支, str)) else None
+        if not 原追踪分支:
+            原追踪分支 = None
+
         try:
-            submodule = self.repo.create_submodule(名称, 路径, url=远程地址, branch=分支)
+            # 2. 强制使用 branch=None 进行全量无分支克隆，确保 100% 能够拉取成功
+            submodule = self.repo.create_submodule(名称, 路径, url=远程地址, branch=None)
+
+            # 3. 克隆成功后，如果原先有追踪分支，将追踪分支配置写回以保留元数据
+            if 原追踪分支:
+                try:
+                    with submodule.config_writer() as cw:
+                        cw.set_value("branch", 原追踪分支)
+                except Exception:
+                    pass
+
             返回.成功(数据={
                 "名称": submodule.name,
                 "路径": submodule.path,
                 "锁定的提交哈希": submodule.hexsha
             })
         except Exception as e:
+            # 4. 原子回滚清扫：若拉取由于网络等原因彻底失败，自动清扫半吊子残留以防下次冲突
+            try:
+                self.删除子模块(名称)
+            except Exception:
+                pass
             返回.失败(f"添加子模块失败：{str(e)}", 异常对象=e)
         return 返回
     # 标记:已测试
@@ -346,43 +367,96 @@ class git操作:
                 返回.失败(f"子模块 '{名称}' 不存在", 异常对象=None)
             return 返回
         try:
-            submodule = self.repo.submodule(名称)
-            模块路径=submodule.path
-            模块完整路径=os.path.join(self.仓库路径, 模块路径)
-            模块名称=submodule.name
-            模块锁定的提交哈希=submodule.hexsha
-            模块分支=submodule.branch
-            模块远程地址=submodule.url
-            索引路径=os.path.join(self.仓库路径, ".git","modules",模块名称)
-            subrepo=submodule.module()
+            try:
+                submodule = self.repo.submodule(名称)
+                模块路径 = submodule.path
+                模块名称 = submodule.name
+            except Exception:
+                submodule = None
+                模块路径 = None
+                模块名称 = 名称
+                # 尝试从 .gitmodules 中读取路径
+                try:
+                    gitmodules路径 = os.path.join(self.仓库路径, ".gitmodules")
+                    if os.path.isfile(gitmodules路径):
+                        from git.config import GitConfigParser
+                        with GitConfigParser(gitmodules路径, read_only=True) as gcp:
+                            section = f'submodule "{名称}"'
+                            if gcp.has_section(section) and gcp.has_option(section, "path"):
+                                模块路径 = gcp.get(section, "path")
+                except Exception:
+                    pass
+                if not 模块路径:
+                    模块路径 = 名称
 
+            模块完整路径 = os.path.join(self.仓库路径, 模块路径)
+            索引路径 = os.path.join(self.仓库路径, ".git", "modules", 模块名称)
 
+            # 只有在子仓库实际存在且已初始化时才尝试清理其缓存并关闭
+            if submodule and submodule.module_exists():
+                try:
+                    subrepo = submodule.module()
+                    subrepo.git.clear_cache()
+                    subrepo.close()
+                    del subrepo
+                except Exception:
+                    pass
 
-
-            subrepo.git.clear_cache()
-            subrepo.close()
-            del subrepo
-            del submodule
+            if submodule:
+                del submodule
             gc.collect()
 
-            self.repo.git.submodule("deinit", "--force", 模块路径)
-            self.repo.git.rm( "--cached", "--force", 模块路径)
+            # deinit 子模块
+            try:
+                self.repo.git.submodule("deinit", "--force", 模块路径)
+            except Exception:
+                pass
 
-            shutil.rmtree(索引路径, onerror=解决win权限问题)
+            # 从 git index 中移除
+            try:
+                self.repo.git.rm("--cached", "--force", 模块路径)
+            except Exception:
+                pass
+
+            # 删除 .git/modules 中的缓存索引路径
+            if os.path.exists(索引路径):
+                try:
+                    shutil.rmtree(索引路径, onerror=解决win权限问题)
+                except Exception:
+                    pass
             del 索引路径
-            shutil.rmtree(模块完整路径, onerror=解决win权限问题)
-            del 模块完整路径
-            with self.repo.config_writer(config_level="repository") as cw:
-                section = f'submodule "{模块名称}"'
-                if cw.has_section(section):
-                    cw.remove_section(section)
-            gitmodules路径 = os.path.join(self.仓库路径, ".gitmodules")
-            from git.config import GitConfigParser
-            with GitConfigParser(gitmodules路径, read_only=False) as gcp:
-                section=f'submodule "{模块名称}"'
-                if gcp.has_section(section):
-                    gcp.remove_section(section)
 
+            # 删除子仓库工作区目录路径
+            if os.path.exists(模块完整路径):
+                try:
+                    if os.path.isdir(模块完整路径) and not os.path.islink(模块完整路径):
+                        shutil.rmtree(模块完整路径, onerror=解决win权限问题)
+                    else:
+                        os.remove(模块完整路径)
+                except Exception:
+                    pass
+            del 模块完整路径
+
+            # 从仓库的 config 中删除配置项
+            try:
+                with self.repo.config_writer(config_level="repository") as cw:
+                    section = f'submodule "{模块名称}"'
+                    if cw.has_section(section):
+                        cw.remove_section(section)
+            except Exception:
+                pass
+
+            # 从 .gitmodules 文件中删除配置项
+            try:
+                gitmodules路径 = os.path.join(self.仓库路径, ".gitmodules")
+                if os.path.isfile(gitmodules路径):
+                    from git.config import GitConfigParser
+                    with GitConfigParser(gitmodules路径, read_only=False) as gcp:
+                        section = f'submodule "{模块名称}"'
+                        if gcp.has_section(section):
+                            gcp.remove_section(section)
+            except Exception:
+                pass
 
             返回.成功(数据=True)
         except Exception as e:

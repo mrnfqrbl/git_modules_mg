@@ -22,7 +22,6 @@ gitee_api=tkapi.gitee_api
 user_info = github_api.获取当前用户信息()
 print(user_info)
 
-i
 
 # repo1=Repo("D:\\temp\\test1")
 # repo2=Repo("D:\\temp\\test2")

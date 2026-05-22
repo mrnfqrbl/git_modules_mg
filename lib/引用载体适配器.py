@@ -28,13 +28,15 @@ from configparser import ConfigParser
 @dataclass
 class 依赖边:
     """一条从当前仓库指向外部仓库的引用"""
-    url: str                          # 当前指向的完整 URL
+    url: str                          # 当前指向 of 完整 URL
     仓库名: str                       # 从 URL 推断的仓库名（不含 .git）
     引用类型: str = "子模块"           # 子模块 | pip依赖 | 可编辑安装
     固定度: str = "浮动到分支"         # 锁定到commit | 浮动到分支 | 浮动到tag
+    路径: str = ""                    # 子模块在父仓库中的相对路径
     载体文件: str = ""                # 来源文件路径（审计用）
     载体位置: str = ""                # 文件内定位信息（section名/行号）
     额外信息: dict = field(default_factory=dict)  # 分支名、路径等
+
 
 
 # ─────────────────────────────────────────────
@@ -105,6 +107,7 @@ class GitModules适配器(引用载体适配器基类):
                 仓库名=仓库名,
                 引用类型="子模块",
                 固定度="浮动到分支",
+                路径=path,
                 载体文件=".gitmodules",
                 载体位置=section,
                 额外信息={"名称": 名称, "路径": path, "分支": branch,"锁定commit": ""}
