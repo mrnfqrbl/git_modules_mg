@@ -217,6 +217,82 @@ def 校验git和gitee_tk(tk: str, tk类型: str, debug=False) -> tuple[bool, str
         logger.add(module, "异常", "网络错误", {}, msg)
         return False, msg, logger.get_logs()
 
+
+def 解除gitignore限制(repo, 相对路径: str) -> bool:
+    """
+    检查路径是否被 .gitignore 忽略。
+    如果被忽略，通过 git check-ignore -v 获取匹配的 .gitignore 文件和行号，
+    将该忽略规则行从对应的 .gitignore 文件中移除，并自动将修改后的 .gitignore 添加到暂存区。
+    返回是否进行了修改。
+    """
+    import os
+    import git
+
+    try:
+        # check_ignore 如果没有被忽略，会返回 exit code 1，从而抛出 GitCommandError
+        res = repo.git.check_ignore("-v", 相对路径)
+    except git.exc.GitCommandError:
+        # 说明该路径没有被忽略，不需要做任何处理
+        return False
+
+    if not res:
+        return False
+
+    修改过 = False
+    # 解析 check_ignore 的输出
+    # 可能会有多个匹配（比如多行忽略规则或多个文件），按行处理
+    for line in res.strip().split("\n"):
+        line = line.strip()
+        if not line:
+            continue
+        # 格式为: <gitignore路径>:<行号>:<模式>\t<路径>
+        # 使用 rsplit 剥离出最后的 <路径>
+        parts = line.rsplit(None, 1)
+        if len(parts) < 2:
+            continue
+        
+        info = parts[0]  # 例如: "D:\path\to\.gitignore:12:custom_nodes/"
+        # 从右边开始找行号
+        info_parts = info.split(":")
+        if len(info_parts) < 3:
+            continue
+        
+        # info_parts[-2] 应该是行号，例如 '12'
+        if not info_parts[-2].isdigit():
+            continue
+            
+        line_num = int(info_parts[-2])
+        gitignore_path = ":".join(info_parts[:-2])
+        
+        # 确认 gitignore_path 是绝对路径还是相对路径，如果不是绝对路径，拼接上工作区目录
+        if not os.path.isabs(gitignore_path):
+            gitignore_path = os.path.join(repo.working_tree_dir, gitignore_path)
+            
+        if os.path.exists(gitignore_path):
+            try:
+                # 读取并删除指定行
+                with open(gitignore_path, "r", encoding="utf-8", errors="ignore") as f:
+                    lines = f.readlines()
+                
+                # 检查行数并进行删除
+                if 1 <= line_num <= len(lines):
+                    del lines[line_num - 1]
+                    
+                    with open(gitignore_path, "w", encoding="utf-8") as f:
+                        f.writelines(lines)
+                        
+                    # 将该修改后的 .gitignore 文件 git add
+                    # 计算相对于工作区的路径
+                    rel_gitignore = os.path.relpath(gitignore_path, repo.working_tree_dir)
+                    repo.git.add(rel_gitignore)
+                    修改过 = True
+            except Exception as e:
+                # 忽略读取/写入错误
+                pass
+                
+    return 修改过
+
+
 # ====================== 测试入口（开箱即用） ======================
 if __name__ == "__main__":
     # 配置默认环境变量名

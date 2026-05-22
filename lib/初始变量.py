@@ -14,6 +14,11 @@
         "根仓库路径":"",
         "缓存目录":"",
         "白名单域名":"gitee.com, openi.pcl.ac.cn"
+    },
+    "git": {
+        "proxy": "",
+        "ssl_verify": "true",
+        "ssl_backend": ""
     }
 }
 

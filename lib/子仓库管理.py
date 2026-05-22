@@ -903,7 +903,12 @@ class 仓库迁移任务:
                         except Exception as fe:
                             self._记录(f"  ⚠ 子模块 fetch 失败：{str(fe)}")
                         sub_repo.git.checkout(目标commit, force=True)
-                        仓库实例.repo.git.add(路径)
+                        try:
+                            from lib.util import 解除gitignore限制
+                            解除gitignore限制(仓库实例.repo, 路径)
+                        except Exception:
+                            pass
+                        仓库实例.repo.git.add("-f", 路径)
                         self._记录(f"  成功将已存在的 Gitee 子模块 {名称} 指针更新至 commit: {目标commit}")
                     except Exception as e:
                         self._记录(f"  ⚠ 更新 Gitee 子模块 {名称} 指针至 commit {目标commit} 失败：{str(e)}")
@@ -955,7 +960,12 @@ class 仓库迁移任务:
                     except Exception as fe:
                         self._记录(f"  ⚠ 子模块 fetch 失败（将尝试直接checkout）：{str(fe)}")
                     sub_repo.git.checkout(目标commit, force=True)
-                    仓库实例.repo.git.add(路径)
+                    try:
+                        from lib.util import 解除gitignore限制
+                        解除gitignore限制(仓库实例.repo, 路径)
+                    except Exception:
+                        pass
+                    仓库实例.repo.git.add("-f", 路径)
                     self._记录(f"  成功将新子模块 {名称} 检出至 commit: {目标commit}")
                 except Exception as e:
                     self._记录(f"  ⚠ 检出新子模块 {名称} 到 commit {目标commit} 失败：{str(e)}")

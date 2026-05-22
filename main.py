@@ -316,13 +316,23 @@ def _应用到根仓库(根仓库路径: str, 清单: 模块清单, 缓存: 处�
             现有子模块_按名称[s["名称"]] = s
             现有子模块_按路径[s["路径"]] = s
 
+    白名单 = 解析白名单域名()
     映射 = 缓存.获取最新映射()
 
     for 条目 in 清单.模块列表:
         旧url = 条目["url"].strip().rstrip("/")
         新url = 映射.get(旧url)
         if not 新url:
-            continue
+            # 检查是否因为是白名单域名而被跳过。如果是，则直接将旧url作为新url使用
+            is_whitelist = False
+            for 域名 in 白名单:
+                if 域名 in 旧url:
+                    is_whitelist = True
+                    break
+            if is_whitelist:
+                新url = 旧url
+            else:
+                continue
 
         仓库名 = 旧url.split("/")[-1].removesuffix(".git")
         默认名称 = 条目.get("子模块名") or 仓库名
@@ -335,6 +345,8 @@ def _应用到根仓库(根仓库路径: str, 清单: 模块清单, 缓存: 处�
         # 获取需要检出的正确 commit
         最新 = 缓存.最新记录(旧url)
         目标commit = 最新.get("迁移后commit") if 最新 else None
+        if not 目标commit and 现有:
+            目标commit = 现有.get("锁定的提交哈希")
 
         if 现有:
             # 替换：删旧 + 添新
@@ -426,7 +438,12 @@ def checkout_submodule_to_commit(parent_repo, name: str, path: str, commit: str)
         except Exception:
             pass
         sub_repo.git.checkout(commit, force=True)
-        parent_repo.git.add(path)
+        try:
+            from lib.util import 解除gitignore限制
+            解除gitignore限制(parent_repo, path)
+        except Exception:
+            pass
+        parent_repo.git.add("-f", path)
     except Exception as e:
         print(f"  ⚠ 检出子模块 {name} 到 {commit[:8]} 失败: {str(e)}")
 
@@ -585,7 +602,7 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     run_parser.add_argument("--dry-run", "-dr", action="store_true", help="预览模式，不实际执行")
     run_parser.add_argument("--no-push", "-np", action="store_true", help="执行迁移但不推送（用于本地测试，对应 dry_run）")
-    run_parser.add_argument("--public", "-pb", type=int, choices=[0, 1], default=1, help="是否公开仓库 (0: 私有, 1: 公开)，默认为 1")
+    run_parser.add_argument("--public", "-pb", type=int, choices=[0, 1], nargs="?", const=1, default=1, help="是否公开仓库 (0: 私有, 1: 公开)，默认为 1")
 
 
     # ── list 子命令（别名 ls） ──

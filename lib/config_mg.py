@@ -19,7 +19,7 @@ class ConfigMg:
         self.加载配置()
 
     def 加载配置(self):
-        """加载配置：文件不存在则自动创建，存在则直接读取"""
+        """加载配置：文件不存在则自动创建，存在则直接读取，并自动合并缺失的配置项"""
         if not os.path.exists(self.配置文件路径):
             # 用默认配置初始化文件
             for 节点 in self.默认配置文件字典:
@@ -28,9 +28,22 @@ class ConfigMg:
                     self._config.set(节点, 键, str(值))
             # 保存初始化的配置
             self._保存到文件()
+        else:
+            # 读取配置文件
+            self._config.read(self.配置文件路径, encoding="utf-8")
+            # 自动补全缺失的配置项
+            修改过 = False
+            for 节点, 键值对 in self.默认配置文件字典.items():
+                if not self._config.has_section(节点):
+                    self._config.add_section(节点)
+                    修改过 = True
+                for 键, 值 in 键值对.items():
+                    if not self._config.has_option(节点, 键):
+                        self._config.set(节点, 键, str(值))
+                        修改过 = True
+            if 修改过:
+                self._保存到文件()
 
-        # 读取配置文件
-        self._config.read(self.配置文件路径, encoding="utf-8")
         # ✅ 返回管家自身，不返回底层工具
         return self
 

@@ -23,6 +23,11 @@ _默认用户配置 = {
         "缓存目录":   "",                         # 留空则用 ~/.gmm/cache/
         "白名单域名": "gitee.com, openi.pcl.ac.cn",
     },
+    "git": {
+        "proxy": "",
+        "ssl_verify": "true",
+        "ssl_backend": ""
+    },
 }
 
 

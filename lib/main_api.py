@@ -52,6 +52,8 @@ class MainApi:
         self.初始化()
 
     def 初始化(self):
+        self.应用git配置()
+
         for 平台名 in self.支持的平台:
             self.初始化单个平台(平台名)
 
@@ -61,6 +63,52 @@ class MainApi:
             self.gitee_api = gitee_api(self.tokens["gitee"], logger=self.logger)
 
         self.logger.info("MainApi 初始化完成")
+
+    def 应用git配置(self):
+        """从配置读取并应用 git 代理和 SSL 参数到全局环境变量中"""
+        try:
+            proxy = self.config.get("git", "proxy")
+        except Exception:
+            proxy = ""
+        try:
+            ssl_verify = self.config.get("git", "ssl_verify")
+        except Exception:
+            ssl_verify = "true"
+        try:
+            ssl_backend = self.config.get("git", "ssl_backend")
+        except Exception:
+            ssl_backend = ""
+
+        # 1. 代理配置
+        proxy_str = str(proxy).strip() if proxy else ""
+        if proxy_str:
+            os.environ["http_proxy"] = proxy_str
+            os.environ["https_proxy"] = proxy_str
+            os.environ["HTTP_PROXY"] = proxy_str
+            os.environ["HTTPS_PROXY"] = proxy_str
+            self.logger.info(f"已应用 Git 代理: {proxy_str}")
+        else:
+            # 清理可能存在的残留代理
+            os.environ.pop("http_proxy", None)
+            os.environ.pop("https_proxy", None)
+            os.environ.pop("HTTP_PROXY", None)
+            os.environ.pop("HTTPS_PROXY", None)
+
+        # 2. SSL 校验配置
+        ssl_verify_str = str(ssl_verify).strip().lower() if ssl_verify else "true"
+        if ssl_verify_str == "false":
+            os.environ["GIT_SSL_NO_VERIFY"] = "1"
+            self.logger.info("已跳过 Git SSL 证书验证 (GIT_SSL_NO_VERIFY=1)")
+        else:
+            os.environ.pop("GIT_SSL_NO_VERIFY", None)
+
+        # 3. SSL 后端配置
+        ssl_backend_str = str(ssl_backend).strip() if ssl_backend else ""
+        if ssl_backend_str:
+            os.environ["GIT_SSL_BACKEND"] = ssl_backend_str
+            self.logger.info(f"已设置 Git SSL 后端为: {ssl_backend_str}")
+        else:
+            os.environ.pop("GIT_SSL_BACKEND", None)
 
     def 初始化单个平台(self, 平台名: str):
         token = ""

@@ -595,11 +595,30 @@ class git操作:
             else:
                 返回.成功(数据=True)
             return 返回
-        try:
-            Repo.clone_from(url=远程仓库地址, to_path=目标路径)
-            返回.成功(数据=True)
-        except Exception as e:
-            返回.失败(f"克隆失败：{str(e)}", 异常对象=e, 数据=False)
+
+        最大尝试次数 = 3
+        等待时间 = 2
+
+        for 尝试 in range(1, 最大尝试次数 + 1):
+            try:
+                # 在重试开始前，如果有残留目录，强力清理
+                if 尝试 > 1 and os.path.exists(目标路径):
+                    try:
+                        shutil.rmtree(目标路径, onerror=解决win权限问题)
+                    except Exception as clean_err:
+                        sys.stderr.write(f"清理残留路径失败: {目标路径}, 错误: {clean_err}\n")
+
+                Repo.clone_from(url=远程仓库地址, to_path=目标路径)
+                返回.成功(数据=True)
+                return 返回
+            except Exception as e:
+                if 尝试 < 最大尝试次数:
+                    sys.stderr.write(f"警告：[git clone] 克隆 {远程仓库地址} 失败 (第 {尝试} 次尝试): {str(e)}，将在 {等待时间} 秒后重试...\n")
+                    sys.stderr.flush()
+                    time.sleep(等待时间)
+                    等待时间 *= 2
+                else:
+                    返回.失败(f"克隆失败：{str(e)}", 异常对象=e, 数据=False)
         return 返回
 
     @staticmethod
