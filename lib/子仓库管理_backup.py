@@ -26,7 +26,6 @@ from typing import Optional, TYPE_CHECKING
 from lib.gdm import 函数通用返回模型
 from lib.引用载体适配器 import 收集所有依赖, 改写所有引用, 检查引用是否已指向目标, 依赖边
 from lib.util import 解决win权限问题
-from lib.缓存管理 import 处理缓存
 
 if TYPE_CHECKING:
     from lib.git_base_api import GiteeApi
@@ -50,7 +49,7 @@ class 处理状态:
 class 迁移上下文:
     """
     共享上下文对象，所有仓库任务实例引用同一份。
-    包含：gitee_api、缓存目录、目标域名、注册表、映射表、日志、处理缓存。
+    包含：gitee_api、缓存目录、目标域名、注册表、映射表、日志。
     """
 
     def __init__(
@@ -62,8 +61,6 @@ class 迁移上下文:
         白名单域名: list[str] = None,
         dry_run: bool = False,
         logger=None,
-        处理缓存实例: "处理缓存" = None,
-        no_push: bool = False,
     ):
         self.gitee_api = gitee_api
         self.gitee用户名 = gitee用户名
@@ -72,10 +69,6 @@ class 迁移上下文:
         self.白名单域名 = 白名单域名 or ["gitee.com", "openi.pcl.ac.cn"]
         self.dry_run = dry_run
         self.logger = logger
-        self.no_push = no_push
-
-        # 新增：持有处理缓存实例引用，迁移完成后直接写入
-        self.处理缓存 = 处理缓存实例
 
         # 全局注册表：url → 仓库迁移任务实例（去重 + 环检测）
         self.注册表: dict[str, "仓库迁移任务"] = {}
@@ -107,7 +100,7 @@ class 仓库迁移任务:
     通过上下文注册表去重，通过状态机检测环。
     """
 
-    def __init__(self, url: str, 上下文: 迁移上下文, 父任务: Optional["仓库迁移任务"] = None, 锁定commit: str = "", 子模块快照: dict = None):
+    def __init__(self, url: str, 上下文: 迁移上下文, 父任务: Optional["仓库迁移任务"] = None):
         # 去重：如果注册表里已有，复用（调用方应先检查）
         self.url = url.rstrip("/")
         self.上下文 = 上下文
@@ -121,9 +114,6 @@ class 仓库迁移任务:
 
         # 迁移后的新 URL
         self.新url: Optional[str] = None
-        self.锁定commit = 锁定commit        # 父级锁定的 commit hash
-        self.子模块快照 = 子模块快照          # {"名称","路径","追踪分支"} 用于溯源
-        self.新commit: Optional[str] = None  # 迁移后本仓库的 HEAD commit
 
         # 状态
         self.状态 = 处理状态.未开始
@@ -179,34 +169,23 @@ class 仓库迁移任务:
         self._记录(f"开始处理：{self.url}")
 
         try:
-            # 步骤1：克隆（不变）
+            # 步骤1：克隆到缓存目录
             self._步骤_克隆()
 
-            # 步骤1.5（新增）：如果有锁定commit，checkout 到该 commit
-            if self.锁定commit:
-                self._步骤_checkout锁定commit()
-
-            # 步骤2：读取依赖（不变）
+            # 步骤2：读取子模块和依赖
             依赖列表 = self._步骤_读取依赖()
 
-            # 步骤3：递归子依赖（改动：传入锁定commit）
+            # 步骤3：对每个依赖递归创建子任务并执行
             self._步骤_递归处理子依赖(依赖列表)
 
-            # 步骤4：改写引用（不变：先 git 级删/建子模块，再文本兜底）
+            # 步骤4：改写本仓库中的引用文件
             self._步骤_改写引用()
 
-            # 步骤5：提交（不变）
+            # 步骤5：提交本地变更
             self._步骤_提交变更()
 
-            # 步骤5.5（新增）：取当前 HEAD 作为"迁移后commit"
-            self._步骤_记录新commit()
-
-            # 步骤6：推送到 gitee（不变）
-            if not self.上下文.no_push:
-                self._步骤_推送到gitee()
-
-            # 步骤7（新增）：写入缓存记录
-            self._步骤_写入缓存()
+            # 步骤6：推送到 Gitee（先确保远端仓库存在）
+            self._步骤_推送到gitee()
 
             # 完成
             self.状态 = 处理状态.处理成功
@@ -227,37 +206,7 @@ class 仓库迁移任务:
         return 返回
 
     # ── 步骤实现 ─────────────────────────────────────────────
-    def _步骤_checkout锁定commit(self):
-        """checkout 到父级锁定的 commit（detached HEAD）"""
-        from lib.git_command import Git工具
-        仓库实例 = Git工具(self.本地路径)
-        结果 = 仓库实例.checkout(self.锁定commit, 强制=True)
-        if not 结果.状态:
-            raise RuntimeError(f"checkout 失败：{结果.错误信息}")
-        self._记录(f"已 checkout 到锁定 commit：{self.锁定commit[:8]}")
 
-    def _步骤_记录新commit(self):
-        """取当前 HEAD hash 作为迁移后 commit"""
-        from lib.git_command import Git工具
-        if self.上下文.dry_run or not os.path.isdir(self.本地路径):
-            return
-        仓库实例 = Git工具(self.本地路径)
-        结果 = 仓库实例.获取HEAD()
-        if 结果.状态:
-            self.新commit = 结果.数据
-            self._记录(f"迁移后 commit：{self.新commit[:8]}")
-
-    def _步骤_写入缓存(self):
-        """把本次迁移结果追加到处理缓存"""
-        if self.上下文.dry_run or not self.上下文.处理缓存:
-            return
-        self.上下文.处理缓存.追加记录(
-            旧url=self.url,
-            新url=self.新url,
-            原始commit=self.锁定commit or "",
-            迁移后commit=self.新commit or "",
-            子模块快照=self.子模块快照,
-        )
     def _步骤_克隆(self):
         """克隆远程仓库到缓存目录（如果已存在则跳过）"""
         from lib.git_command import Git工具
@@ -291,18 +240,6 @@ class 仓库迁移任务:
 
         for 边 in 依赖列表:
             self._记录(f"  → [{边.引用类型}] {边.仓库名} @ {边.url}")
-        from lib.git_command import Git工具
-        try:
-            仓库实例 = Git工具(self.本地路径)
-            子模块结果 = 仓库实例.获取子模块列表()
-            if 子模块结果.状态 and 子模块结果.数据:
-                子模块映射 = {s["URL"]: s["锁定的提交哈希"] for s in 子模块结果.数据}
-                for 边 in 依赖列表:
-                    if 边.引用类型 == "子模块" and 边.url in 子模块映射:
-                        边.额外信息["锁定commit"] = 子模块映射[边.url]
-        except Exception as e:
-            self._记录(f"读取子模块锁定提交失败，跳过：{str(e)}")
-
 
         return 依赖列表
 
@@ -542,10 +479,8 @@ def 批量迁移(
     缓存根目录: str,
     目标域名列表: list[str] = None,
     白名单域名: list[str] = None,
-    处理缓存实例: 处理缓存 = None,
     dry_run: bool = False,
     logger=None,
-    no_push: bool = False,
 ) -> 函数通用返回模型:
     """
     批量迁移入口。
@@ -570,8 +505,6 @@ def 批量迁移(
         白名单域名=白名单域名,
         dry_run=dry_run,
         logger=logger,
-        处理缓存实例=处理缓存实例,
-        no_push=no_push,
     )
     上下文.确保缓存目录存在()
 

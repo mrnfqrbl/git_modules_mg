@@ -107,7 +107,7 @@ class GitModules适配器(引用载体适配器基类):
                 固定度="浮动到分支",
                 载体文件=".gitmodules",
                 载体位置=section,
-                额外信息={"名称": 名称, "路径": path, "分支": branch}
+                额外信息={"名称": 名称, "路径": path, "分支": branch,"锁定commit": ""}
             )
             结果.append(边)
 

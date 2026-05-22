@@ -69,6 +69,35 @@ class git操作:
             返回.失败(f"查询失败：{str(e)}", 异常对象=e)
         return 返回
 
+    def 获取HEAD(self, test: bool = False) -> 函数通用返回模型:
+        """获取当前 HEAD 的 commit hash（detached 也能读）"""
+        返回 = 函数通用返回模型()
+        if test:
+            返回.成功(数据="0" * 40)
+            return 返回
+        try:
+            返回.成功(数据=self.repo.head.commit.hexsha)
+        except Exception as e:
+            返回.失败(f"获取HEAD失败：{str(e)}", 异常对象=e)
+        return 返回
+
+    def checkout(self, 引用: str, 强制: bool = False, test: bool = False) -> 函数通用返回模型:
+        """切换到指定分支/标签/commit。强制=True 会丢弃未提交修改。"""
+        返回 = 函数通用返回模型()
+        if test:
+            返回.成功(数据=引用)
+            return 返回
+        try:
+            参数 = ["checkout"]
+            if 强制:
+                参数.append("--force")
+            参数.append(引用)
+            self.repo.git.execute(["git"] + 参数)
+            返回.成功(数据=引用)
+        except Exception as e:
+            返回.失败(f"checkout 失败：{str(e)}", 异常对象=e)
+        return 返回
+
     # 标记:已测试
 
     def 是否有未提交更改(self, test: bool = False) -> 函数通用返回模型:
@@ -107,10 +136,18 @@ class git操作:
         try:
             data = []
             for submodule in self.repo.submodules:
+                # 读 .gitmodules 中的 branch 字段，避免 submodule.branch 在未配置时报错
+                追踪分支 = ""
+                try:
+                    with submodule.config_reader() as cr:
+                        if cr.has_option("branch"):
+                            追踪分支 = cr.get("branch") or ""
+                except Exception:
+                    追踪分支 = ""
                 data.append({
                     "名称": submodule.name,
                     "路径": submodule.path,
-                    "追踪分支": submodule.branch,
+                    "追踪分支": 追踪分支,
                     "锁定的提交哈希": submodule.hexsha,
                     "URL": submodule.url,
                 })
@@ -129,10 +166,17 @@ class git操作:
             return 返回
         try:
             submodule = self.repo.submodule(子模块名称)
+            追踪分支 = ""
+            try:
+                with submodule.config_reader() as cr:
+                    if cr.has_option("branch"):
+                        追踪分支 = cr.get("branch") or ""
+            except Exception:
+                追踪分支 = ""
             data = {
                 "名称": submodule.name,
                 "路径": submodule.path,
-                "追踪分支": submodule.branch,
+                "追踪分支": 追踪分支,
                 "锁定的提交哈希": submodule.hexsha,
                 "URL": submodule.url,
             }

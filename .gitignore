@@ -8,3 +8,5 @@ lib/test.txt
 */__pycache__/*
 */__pycache__
 ComfyUi
+.sub_data/
+.docs/
