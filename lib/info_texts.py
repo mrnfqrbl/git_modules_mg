@@ -248,6 +248,50 @@ COMMANDS = {
         "see_also": [],
     },
 
+    "ir": {
+        "brief": "递归安装所有子仓库的依赖文件和setup.py和toml等",
+        "usage": "gmm ir [--python <解释器路径>] [--editable] [--ignore-errors]",
+        "need_repo": True,
+        "has_sub_help": False,
+        "usage_formats": [
+            ("gmm ir", "在当前仓库目录下执行"),
+            ("gmm <仓库名> ir", "指定已注册仓库执行"),
+        ],
+        "desc": "递归扫描当前仓库的所有子仓库（子模块），并自动安装 requirements.txt中的依赖，默认跳过 setup.py/pyproject.toml 的可编辑安装。",
+        "args": [],
+        "opts": [
+            ("--python <解释器路径>", "指定用于安装依赖的 Python 解释器路径（默认使用当前环境的 Python 解释器）"),
+            ("--editable | -e", "执行 setup.py 和 pyproject.toml 的可编辑安装 (pip install -e .)，默认跳过"),
+            ("--ignore-errors | -ie", "忽略单个子仓库的安装错误，继续处理其它仓库"),
+        ],
+        "examples": [
+            ("gmm ir", "递归安装子模块依赖（默认跳过可编辑安装）"),
+            ("gmm ir --editable", "安装依赖并执行子模块的可编辑安装"),
+            ("gmm ir --ignore-errors", "忽略安装错误并继续"),
+        ],
+        "see_also": ["get"],
+    },
+
+    "get": {
+        "brief": "获取仓库依赖树信息",
+        "usage": "gmm get info",
+        "need_repo": True,
+        "has_sub_help": True,
+        "usage_formats": [
+            ("gmm get info", "输出根仓库下所有递归子仓库/依赖以树形"),
+            ("gmm <仓库名> get info", "指定已注册仓库并输出其递归依赖树"),
+        ],
+        "desc": "以树形结构输出根仓库下所有递归子模块与 git+ 类型的外部依赖。",
+        "args": [
+            ("info", "输出根仓库下的所有子模块与 git+ 依赖树"),
+        ],
+        "opts": [],
+        "examples": [
+            ("gmm get info", "打印树状依赖图"),
+        ],
+        "see_also": ["ir"],
+    },
+
 }
 
 # ═══════════════════════════════════════════════════════════
@@ -269,7 +313,7 @@ COMMAND_GROUPS = [
     {
         "name": "迁移操作",
         "desc": "在 Git 仓库目录下执行，或用 gmm <仓库名> <命令>",
-        "commands": ["add", "sync", "list", "run", "mark", "unmark", "clean"],
+        "commands": ["add", "sync", "list", "run", "mark", "unmark", "clean", "ir", "get"],
     },
     {
         "name": "配置管理",

@@ -33,7 +33,7 @@ from lib.gdm import 函数通用返回模型
     "ls": "list",
 }
 
-所有命令名集合 = set(短命令别名.keys()) | set(短命令别名.values()) | {"--help-full"}
+所有命令名集合 = set(短命令别名.keys()) | set(短命令别名.values()) | {"--help-full", "ir", "get"}
 
 
 # ─────────────────────────────────────────────
@@ -215,7 +215,21 @@ def cmd_run(args, 名称: str, 根仓库路径: str):
         print("✗ 模块清单为空，请先添加模块")
         sys.exit(0)
 
-    待处理 = 过滤待处理列表(清单, 缓存)
+    # 提取根仓库的子模块锁定信息，以支持子模块指针变更时的自动增量更新
+    from lib.git_command import Git工具
+    from lib.缓存管理 import 规整url
+    子模块锁定表 = {}
+    try:
+        子模块结果 = Git工具(根仓库路径).获取子模块列表()
+        if 子模块结果.状态 and 子模块结果.数据:
+            for item in 子模块结果.数据:
+                sub_url = item.get("URL") or item.get("url")
+                if sub_url:
+                    子模块锁定表[规整url(sub_url)] = item.get("锁定的提交哈希")
+    except Exception as ge:
+        api.logger.warning(f"获取根仓库子模块锁定信息失败：{ge}")
+
+    待处理 = 过滤待处理列表(清单, 缓存, 子模块锁定表)
     print(f"  清单共 {清单.数量()} 个模块，本次待处理 {len(待处理)} 个")
 
     if not 待处理:
@@ -286,7 +300,7 @@ def cmd_run(args, 名称: str, 根仓库路径: str):
 
     # 迁移完成后自动应用到根仓库
     # 只有 dry_run 时不应用；no_push 也应用（只是不推送）
-    if not 是否dry_run and 结果.状态 and 结果.数据 and 结果.数据.get("映射表"):
+    if not 是否dry_run and 结果.状态 and 结果.数据:
         print(f"\n{'─' * 50}")
         print(f"  应用到根仓库：{根仓库路径}")
         print(f"{'─' * 50}")
@@ -345,19 +359,52 @@ def _应用到根仓库(根仓库路径: str, 清单: 模块清单, 缓存: 处�
         # 获取需要检出的正确 commit
         最新 = 缓存.最新记录(旧url)
         目标commit = 最新.get("迁移后commit") if 最新 else None
+
+        is_whitelist = False
+        for 域名 in 白名单:
+            if 域名 in 旧url:
+                is_whitelist = True
+                break
+
+        if is_whitelist and 现有:
+            # 如果是白名单域名（已在目标平台），则对比本地和远程内容。目前只针对迁移前原 URL 属于 mrnfqrbl 的个人仓库运行自动更新。
+            is_personal = "mrnfqrbl" in 旧url.lower()
+            if is_personal:
+                sub_path = os.path.join(根仓库路径, 现有["路径"])
+                if os.path.isdir(os.path.join(sub_path, ".git")) or os.path.isfile(os.path.join(sub_path, ".git")):
+                    try:
+                        sub_repo = git.Repo(sub_path)
+                        branch_name = 现有.get("追踪分支") or 条目.get("追踪分支")
+                        remote_commit = get_remote_latest_commit(sub_repo, branch_name)
+                        if remote_commit:
+                            local_commit = sub_repo.head.commit.hexsha
+                            if local_commit != remote_commit:
+                                if sub_repo.is_ancestor(local_commit, remote_commit):
+                                    print(f"  子模块 {现有['名称']} 本地提交落后于远程 ({local_commit[:8]} -> {remote_commit[:8]})，将执行更新...")
+                                    目标commit = remote_commit
+                                else:
+                                    print(f"  子模块 {现有['名称']} 本地提交与远程不一致，但本地未落后，跳过自动更新")
+                    except Exception as e:
+                        print(f"  ⚠ 比较子模块 {现有['名称']} 本地和远程失败: {str(e)}")
+
         if not 目标commit and 现有:
             目标commit = 现有.get("锁定的提交哈希")
 
         if 现有:
-            # 替换：删旧 + 添新
             名称 = 现有["名称"]
             路径 = 现有["路径"]
             分支 = 现有.get("追踪分支") or 分支
             
-            # 如果 URL 已是最新的，且已经检出在正确的 commit 上，我们只提示，但允许在强制重迁时重新处理
-            if 现有["URL"] == 新url and submodule_at_commit(仓库.repo, 名称, 目标commit):
-                print(f"  子模块 {名称} 已是最新的（URL与提交哈希均匹配）：{新url}")
-                continue
+            if 现有["URL"] == 新url:
+                if submodule_at_commit(仓库.repo, 名称, 目标commit):
+                    print(f"  子模块 {名称} 已是最新的（URL与提交哈希均匹配）：{新url}")
+                    continue
+                else:
+                    if not dry_run:
+                        print(f"  更新已有的子模块指针：{名称} → {目标commit[:8] if 目标commit else 'latest'}")
+                        if 目标commit:
+                            checkout_submodule_to_commit(仓库.repo, 名称, 路径, 目标commit)
+                    continue
 
             if not dry_run:
                 # 删除旧子模块
@@ -396,6 +443,31 @@ def _应用到根仓库(根仓库路径: str, 清单: 模块清单, 缓存: 处�
                 print("  ✓ 已提交并推送")
         else:
             print("  - 无变更需要提交")
+
+
+def get_remote_latest_commit(sub_repo, branch_name: str = None) -> str | None:
+    """获取子模块远程的最新 commit hash"""
+    try:
+        sub_repo.git.fetch("origin")
+        if not branch_name:
+            try:
+                ref = sub_repo.git.symbolic_ref("refs/remotes/origin/HEAD")
+                branch_name = ref.split("/")[-1]
+            except Exception:
+                for b in ["main", "master", "develop"]:
+                    try:
+                        sub_repo.commit(f"origin/{b}")
+                        branch_name = b
+                        break
+                    except Exception:
+                        pass
+        
+        if branch_name:
+            commit_sha = sub_repo.commit(f"origin/{branch_name}").hexsha
+            return commit_sha
+    except Exception as e:
+        print(f"  ⚠ 获取子模块远程最新提交失败: {str(e)}")
+    return None
 
 
 def submodule_at_commit(parent_repo, name: str, commit: str) -> bool:
@@ -492,6 +564,266 @@ def cmd_unmark(args, 名称: str, 根仓库路径: str):
     for url in args.urls:
         缓存.清除标记(url)
         print(f"  ✓ 已清除标记：{url}")
+
+
+def cmd_ir(args, 名称: str, 根仓库路径: str):
+    import subprocess
+    import sys
+    from lib.git_command import Git工具
+
+    print(f"\n{'═' * 50}")
+    print(f"  开始递归安装依赖：{名称 or 根仓库路径}")
+    print(f"{'═' * 50}\n")
+
+    def 获取所有递归子仓库(当前路径: str) -> list[str]:
+        结果 = []
+        try:
+            子模块结果 = Git工具(当前路径).获取子模块列表()
+            if 子模块结果.状态 and 子模块结果.数据:
+                for 子模块 in 子模块结果.数据:
+                    子路径 = os.path.join(当前路径, 子模块["路径"])
+                    if os.path.isdir(子路径):
+                        结果.append(子路径)
+                        结果.extend(获取所有递归子仓库(子路径))
+        except Exception:
+            pass
+        return 结果
+
+    # 仅安装递归子仓库依赖，不包含根仓库自身
+    仓库列表 = 获取所有递归子仓库(根仓库路径)
+    python_exe = args.python_exe or sys.executable
+
+    if not 仓库列表:
+        print(f"  - 未发现任何子仓库")
+    else:
+        for i, 仓库路径 in enumerate(仓库列表, 1):
+            相对路径 = os.path.relpath(仓库路径, 根仓库路径)
+            显示名称 = 相对路径
+            print(f"[{i}/{len(仓库列表)}] 正在处理子仓库: {显示名称}")
+
+            # 查找依赖文件
+            has_requirements = os.path.isfile(os.path.join(仓库路径, "requirements.txt"))
+            has_setup = os.path.isfile(os.path.join(仓库路径, "setup.py"))
+            has_pyproject = os.path.isfile(os.path.join(仓库路径, "pyproject.toml"))
+
+            if not (has_requirements or has_setup or has_pyproject):
+                print(f"  - 跳过（未发现 Python 依赖文件）")
+                continue
+
+            failed = False
+
+            if has_requirements:
+                print(f"  - 发现 requirements.txt, 正在执行安装...")
+                cmd = [python_exe, "-m", "pip", "install", "-r", "requirements.txt"]
+                try:
+                    subprocess.run(cmd, cwd=仓库路径, check=True)
+                    print(f"    ✓ requirements.txt 安装成功")
+                except Exception as e:
+                    # 问题: 未捕获 OSError (如 FileNotFoundError)，若解释器路径不存在会导致程序崩溃
+                    print(f"    ✗ requirements.txt 安装失败: {e}")
+                    err_msg = str(e)
+                    if "WinError 5" in err_msg or "拒绝访问" in err_msg or "PermissionError" in err_msg:
+                        print("      [提示] 遇到 WinError 5 拒绝访问错误。请检查是否有 ComfyUI 或其他 Python 后台进程正在运行并占用了该虚拟环境，如有请先关闭它们再重试。")
+                    failed = True
+
+            if (has_setup or has_pyproject):
+                if not args.editable:
+                    print(f"  - 发现 setup.py/pyproject.toml, 默认跳过可编辑安装 (使用 -e/--editable 开启)")
+                else:
+                    file_name = "setup.py" if has_setup else "pyproject.toml"
+                    print(f"  - 发现 {file_name}, 正在执行可编辑安装...")
+                    cmd = [python_exe, "-m", "pip", "install", "-e", "."]
+                    try:
+                        subprocess.run(cmd, cwd=仓库路径, check=True)
+                        print(f"    ✓ {file_name} 可编辑安装成功")
+                    except Exception as e:
+                        # 问题: 未捕获 OSError (如 FileNotFoundError)，若解释器路径不存在会导致程序崩溃
+                        print(f"    ✗ {file_name} 可编辑安装失败: {e}")
+                        err_msg = str(e)
+                        if "WinError 5" in err_msg or "拒绝访问" in err_msg or "PermissionError" in err_msg:
+                            print("      [提示] 遇到 WinError 5 拒绝访问错误。请检查是否有 ComfyUI 或其他 Python 后台进程正在运行并占用了该虚拟环境，如有请先关闭它们再重试。")
+                        failed = True
+
+            if failed and not args.ignore_errors:
+                print(f"\n✗ 依赖安装失败，正在中止执行。可以使用 --ignore-errors (-ie) 忽略错误继续处理其他仓库。")
+                sys.exit(1)
+
+    print(f"\n{'═' * 50}")
+    print(f"  所有子仓库依赖安装处理完成")
+    print(f"{'═' * 50}\n")
+
+
+def cmd_get(args, 名称: str, 根仓库路径: str):
+    if not args.get_subcommand:
+        print(get_cmd("get"))
+        sys.exit(1)
+    if args.get_subcommand == "info":
+        cmd_get_info(args, 名称, 根仓库路径)
+
+
+def cmd_get_info(args, 名称: str, 根仓库路径: str):
+    from lib.引用载体适配器 import GitModules适配器, 收集所有依赖
+
+    print(f"\n{'═' * 50}")
+    print(f"  根仓库依赖树：{名称 or 根仓库路径}")
+    print(f"{'═' * 50}\n")
+
+    根显示 = 名称 or os.path.basename(根仓库路径)
+    print(f"📁 {根显示}")
+
+    visited = set()
+
+    def 获取子仓库依赖(路径: str, 深度: int) -> list[dict]:
+        deps = []
+        if 深度 == 0:
+            adapter = GitModules适配器()
+            if adapter.识别(路径):
+                try:
+                    for dep in adapter.解析(路径):
+                        deps.append({
+                            "type": "子模块",
+                            "name": dep.仓库名,
+                            "url": dep.url,
+                            "path": dep.路径,
+                            "source": ".gitmodules"
+                        })
+                except Exception:
+                    pass
+        else:
+            # 1. 扫描本体文件依赖
+            native_deps = []
+            try:
+                raw_deps = 收集所有依赖(路径)
+                for dep in raw_deps:
+                    if dep.引用类型 == "子模块":
+                        native_deps.append({
+                            "type": "子模块",
+                            "name": dep.仓库名,
+                            "url": dep.url,
+                            "path": dep.路径,
+                            "source": dep.载体文件
+                        })
+                    else:
+                        native_deps.append({
+                            "type": "pip依赖",
+                            "name": dep.仓库名,
+                            "url": dep.url,
+                            "source": dep.载体文件
+                        })
+            except Exception:
+                pass
+
+            # 2. 读取 .gmm_map.json 数据
+            json_deps = []
+            gmm_map_path = os.path.join(路径, ".gmm_map.json")
+            if os.path.isfile(gmm_map_path):
+                import json
+                try:
+                    with open(gmm_map_path, "r", encoding="utf-8") as f:
+                        data = json.load(f)
+                        for item in data.get("子依赖列表", []):
+                            item_path = item.get("路径", "")
+                            item_name = item.get("名称", "")
+                            item_url = item.get("原始url", "")
+                            item_new_url = item.get("新url", "")
+                            is_pip = item_path.replace("\\", "/").startswith("submodules/")
+                            json_deps.append({
+                                "type": "pip依赖" if is_pip else "子模块",
+                                "name": item_name,
+                                "url": item_url,
+                                "new_url": item_new_url,
+                                "path": item_path,
+                                "source": ".gmm_map.json"
+                            })
+                except Exception:
+                    pass
+
+            # 3. 综合合并：融合 native_deps 和 json_deps
+            def clean_url(u):
+                if not u: return ""
+                return u.strip().rstrip("/").removesuffix(".git").lower()
+
+            matched_json_indices = set()
+            for nd in native_deps:
+                matched_item = None
+                for idx, jd in enumerate(json_deps):
+                    if idx in matched_json_indices:
+                        continue
+                    
+                    url_match = (clean_url(nd["url"]) == clean_url(jd["url"]))
+                    name_path_match = False
+                    if nd["type"] == "子模块" and jd["type"] == "子模块":
+                        name_path_match = (nd["path"] == jd["path"] or nd["name"] == jd["name"])
+                    
+                    if url_match or name_path_match:
+                        matched_item = jd
+                        matched_json_indices.add(idx)
+                        break
+                
+                if matched_item:
+                    merged_source = f"{nd['source']} + .gmm_map.json"
+                    deps.append({
+                        "type": nd["type"],
+                        "name": nd["name"],
+                        "url": nd["url"],
+                        "new_url": matched_item.get("new_url"),
+                        "path": nd.get("path") or matched_item.get("path"),
+                        "source": merged_source
+                    })
+                else:
+                    deps.append(nd)
+
+            # 将 json 中有但本地代码中未发现的额外依赖也合并进来
+            for idx, jd in enumerate(json_deps):
+                if idx not in matched_json_indices:
+                    deps.append(jd)
+
+        return deps
+
+    def build_tree(当前路径: str, 深度: int = 0, 前缀: str = ""):
+        依赖列表 = 获取子仓库依赖(当前路径, 深度)
+        总数 = len(依赖列表)
+        
+        for i, dep in enumerate(依赖列表):
+            is_last = (i == 总数 - 1)
+            connector = "└── " if is_last else "├── "
+            next_prefix = 前缀 + ("    " if is_last else "│   ")
+            
+            if dep["type"] == "子模块":
+                子绝对路径 = os.path.join(当前路径, dep["path"])
+                exists = os.path.isdir(os.path.join(子绝对路径, ".git")) or os.path.isfile(os.path.join(子绝对路径, ".git"))
+                status_str = "" if exists else " (未初始化)"
+                
+                url_str = ""
+                if dep.get("new_url"):
+                    url_str = f" [URL: {dep['url']} ➔ {dep['new_url']}]"
+                else:
+                    url_str = f" [URL: {dep['url']}]"
+                    
+                print(f"{前缀}{connector}📦 {dep['name']}{status_str} [路径: {dep['path']}]{url_str}")
+                
+                clean_url = dep["url"].rstrip("/").removesuffix(".git")
+                if clean_url in visited:
+                    print(f"{next_prefix}└── 🔁 (循环引用/已访问: {dep['url']})")
+                elif exists:
+                    visited.add(clean_url)
+                    build_tree(子绝对路径, 深度 + 1, next_prefix)
+            else:
+                display_url = dep["url"]
+                if not display_url.startswith("git+"):
+                    display_url = "git+" + display_url
+                new_display_url = dep.get("new_url")
+                if new_display_url:
+                    if not new_display_url.startswith("git+"):
+                        new_display_url = "git+" + new_display_url
+                    print(f"{前缀}{connector}🐍 {dep['name']} [来源: {dep['source']}]")
+                    print(f"{next_prefix}└─ URL: {display_url} ➔ {new_display_url}")
+                else:
+                    print(f"{前缀}{connector}🐍 {dep['name']} [来源: {dep['source']}]")
+                    print(f"{next_prefix}└─ URL: {display_url}")
+
+    build_tree(根仓库路径, 0, "")
+    print(f"\n{'═' * 50}\n")
 
 
 # ─────────────────────────────────────────────
@@ -634,6 +966,21 @@ def main():
         formatter_class=argparse.RawDescriptionHelpFormatter)
     unmark_parser.add_argument("urls", nargs="+", help="要清除标记的 URL")
 
+    # ── ir 子命令（需要根仓库） ──
+    ir_parser = subparsers.add_parser("ir", help="递归安装所有子仓库的依赖文件和setup.py和toml等",
+        epilog=get_cmd("ir"),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    ir_parser.add_argument("--python","-p", dest="python_exe", default=None, help="指定用于安装依赖的 Python 解释器路径")
+    ir_parser.add_argument("--editable", "-e", action="store_true", help="执行 setup.py 和 pyproject.toml 的可编辑安装 (pip install -e .)")
+    ir_parser.add_argument("--ignore-errors", "-ie", action="store_true", help="忽略单个子仓库的安装错误，继续处理其它仓库")
+
+    # ── get 子命令（需要根仓库） ──
+    get_parser = subparsers.add_parser("get", help="获取仓库依赖树信息",
+        epilog=get_cmd("get"),
+        formatter_class=argparse.RawDescriptionHelpFormatter)
+    get_subparsers = get_parser.add_subparsers(dest="get_subcommand")
+    get_subparsers.add_parser("info", help="输出根仓库下所有递归子仓库/依赖以树形")
+
     args = parser.parse_args(剩余argv)
 
     # ── 无命令 / --help / -h ──
@@ -678,6 +1025,8 @@ def main():
         "sync":   cmd_sync,
         "mark":   cmd_mark,
         "unmark": cmd_unmark,
+        "ir":     cmd_ir,
+        "get":    cmd_get,
     }[args.command](args, 仓库名称, 根仓库路径)
 
 

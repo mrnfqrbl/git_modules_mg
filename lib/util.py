@@ -251,6 +251,7 @@ def 解除gitignore限制(repo, 相对路径: str) -> bool:
         if len(parts) < 2:
             continue
         
+        # 问题: 此处使用 split(":") 硬拆分，如果 ignore 路径或模式本身包含冒号会导致解析行号失败
         info = parts[0]  # 例如: "D:\path\to\.gitignore:12:custom_nodes/"
         # 从右边开始找行号
         info_parts = info.split(":")

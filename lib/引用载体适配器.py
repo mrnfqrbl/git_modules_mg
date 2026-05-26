@@ -145,6 +145,7 @@ class GitModules适配器(引用载体适配器基类):
 class Requirements适配器(引用载体适配器基类):
     """解析/改写 requirements*.txt 中的 git+https:// 依赖"""
 
+    # 问题: 正则排除 @ 字符导致包含凭据的 URL 无法正确解析
     _PURE_URL_RE = re.compile(
         r'git\+(https?://[^\s@#]+(?:\.git)?)'
     )
@@ -227,6 +228,7 @@ class Requirements适配器(引用载体适配器基类):
 class SetupPy适配器(引用载体适配器基类):
     """解析/改写 setup.py 中的 git 依赖"""
 
+    # 问题: 正则排除 @ 字符导致包含凭据的 URL 无法正确解析
     _PURE_URL_RE = re.compile(
         r'git\+(https?://[^\s\'"@#,]+(?:\.git)?)'
     )
@@ -295,6 +297,7 @@ class PyProject适配器(引用载体适配器基类):
     """解析/改写 pyproject.toml 中的 git 依赖（骨架）"""
     # TODO: 完整实现 toml 结构化解析（需要 toml/tomllib），当前用正则兜底
 
+    # 问题: 正则排除 @ 字符导致包含凭据的 URL 无法正确解析
     _PURE_URL_RE = re.compile(
         r'git\+(https?://[^\s\'"@#,]+(?:\.git)?)'
     )

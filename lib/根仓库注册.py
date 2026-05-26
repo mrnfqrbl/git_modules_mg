@@ -90,6 +90,7 @@ class 根仓库注册表:
         if not 名称 or not 名称.strip():
             return False
         路径 = os.path.abspath(路径)
+        # 问题: 强制要求 .git 为目录，导致 submodule 或 worktree (其 .git 为文件) 无法注册
         if not os.path.isdir(路径) or not os.path.isdir(os.path.join(路径, ".git")):
             return False
 
